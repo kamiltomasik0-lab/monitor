@@ -1,0 +1,27 @@
+name: Monitor dostawcow Allegro
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Sprawdz oferty dostawcow
+        env:
+          ALLEGRO_CLIENT_ID: ${{ secrets.ALLEGRO_CLIENT_ID }}
+          ALLEGRO_CLIENT_SECRET: ${{ secrets.ALLEGRO_CLIENT_SECRET }}
+        run: node monitor.js
+      - name: Zapisz wyniki
+        run: |
+          git config user.name "monitor-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data.json
+          git diff --cached --quiet || git commit -m "aktualizacja $(date -u +'%Y-%m-%d %H:%M')"
+          git push
