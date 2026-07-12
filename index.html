@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor dostawców Allegro</title>
+<style>
+  :root{--bg:#0f1420;--card:#171e2e;--line:#242e45;--txt:#e8ecf4;--mut:#8b96ad;
+        --ok:#2ecc71;--warn:#f39c12;--bad:#e74c3c;--err:#9b59b6;--acc:#4a9eff}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font:15px/1.5 -apple-system,'Segoe UI',Roboto,Arial,sans-serif;padding:24px}
+  .wrap{max-width:1200px;margin:0 auto}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;margin-bottom:18px}
+  h1{font-size:22px;font-weight:700}
+  .upd{color:var(--mut);font-size:13px}
+  .upd b{color:var(--txt)}
+  .stale{color:var(--bad);font-weight:600}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:13px;color:var(--mut)}
+  .stat b{display:block;font-size:20px;color:var(--txt)}
+  .stat.s-bad b{color:var(--bad)}.stat.s-warn b{color:var(--warn)}.stat.s-ok b{color:var(--ok)}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  input[type=search]{flex:1;min-width:220px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 12px;color:var(--txt);font-size:14px}
+  button.f{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 14px;color:var(--mut);cursor:pointer;font-size:13px}
+  button.f.on{color:var(--txt);border-color:var(--acc)}
+  a.edit{margin-left:auto;align-self:center;color:var(--acc);font-size:13px;text-decoration:none}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th{background:#111726;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:10px 12px}
+  td{padding:11px 12px;border-top:1px solid var(--line);vertical-align:top;font-size:14px}
+  tr.a2 td{background:rgba(231,76,60,.10)} tr.a1 td{background:rgba(243,156,18,.10)} tr.a3 td{background:rgba(155,89,182,.10)}
+  .b{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700}
+  .b-ok{background:rgba(46,204,113,.15);color:var(--ok)} .b-bad{background:rgba(231,76,60,.18);color:var(--bad)}
+  .b-warn{background:rgba(243,156,18,.18);color:var(--warn)} .b-err{background:rgba(155,89,182,.18);color:var(--err)}
+  .nm{font-weight:600}.sub{color:var(--mut);font-size:12px;margin-top:2px}
+  .pr{font-variant-numeric:tabular-nums;font-weight:600}
+  .up{color:var(--bad);font-weight:700}.dn{color:var(--ok);font-weight:700}
+  a.lnk{color:var(--acc);text-decoration:none;font-size:13px}
+  .spark{display:flex;align-items:flex-end;gap:2px;height:26px}
+  .spark i{width:5px;background:var(--acc);border-radius:2px;opacity:.7;display:block}
+  .empty{padding:40px;text-align:center;color:var(--mut)}
+  @media(max-width:760px){.hidem{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📦 Monitor źródeł zakupu</h1>
+    <div class="upd" id="upd">Ładowanie…</div>
+  </header>
+  <div class="stats" id="stats"></div>
+  <div class="bar">
+    <input type="search" id="q" placeholder="Szukaj produktu / numeru oferty…">
+    <button class="f on" data-f="all">Wszystkie</button>
+    <button class="f" data-f="alert">🔴🟠 Tylko problemy</button>
+    <button class="f" data-f="ok">🟢 OK</button>
+    <a class="edit" id="editLink" href="#" target="_blank">✏️ Edytuj listę produktów</a>
+  </div>
+  <table>
+    <thead><tr>
+      <th>Produkt</th><th>Status</th><th>Najtańsze źródło (start)</th><th>Najtańsze źródło (teraz)</th><th>Zmiana</th><th>Liczba źródeł</th>
+      <th class="hidem">Trend ceny</th><th>Linki</th>
+    </tr></thead>
+    <tbody id="tb"><tr><td colspan="8" class="empty">Ładowanie danych…</td></tr></tbody>
+  </table>
+</div>
+<script>
+let DATA=null, FILTER='all', Q='';
+const zl=v=>v==null?'—':v.toFixed(2).replace('.',',')+' zł';
+
+function badge(o){
+  if(o.blad) return '<span class="b b-err">BŁĄD</span>';
+  if(o.status==='BRAK ŹRÓDŁA') return '<span class="b b-bad">BRAK ŹRÓDŁA - NIE KUPISZ</span>';
+  if(o.alert===1) return '<span class="b b-warn">ŹRÓDŁO +'+o.zmianaProc+'%</span>';
+  return '<span class="b b-ok">DOSTĘPNY</span>';
+}
+function spark(h){
+  const pts=(h||[]).map(x=>x.cena).filter(v=>v!=null).slice(-14);
+  if(pts.length<2) return '';
+  const mn=Math.min(...pts), mx=Math.max(...pts), rg=(mx-mn)||1;
+  return '<div class="spark">'+pts.map(v=>'<i style="height:'+(4+22*(v-mn)/rg)+'px"></i>').join('')+'</div>';
+}
+function render(){
+  const tb=document.getElementById('tb');
+  if(!DATA){tb.innerHTML='<tr><td colspan="8" class="empty">Brak pliku data.json — uruchom pierwszy raz monitor w zakładce Actions na GitHubie.</td></tr>';return;}
+  let rows=[...DATA.oferty].sort((a,b)=>b.alert-a.alert || (b.zmianaProc??-99)-(a.zmianaProc??-99));
+  if(FILTER==='alert') rows=rows.filter(o=>o.alert===1||o.alert===2||o.alert===3);
+  if(FILTER==='ok') rows=rows.filter(o=>o.alert===0);
+  if(Q) rows=rows.filter(o=>(o.nazwa+' '+(o.mojeOferty||[]).join(' ')+' '+(o.najtanszaOferta?o.najtanszaOferta.sprzedawca:'')).toLowerCase().includes(Q));
+  tb.innerHTML=rows.length?rows.map(o=>`
+    <tr class="a${o.alert}">
+      <td><div class="nm">${o.nazwa}</div><div class="sub">moje oferty: ${(o.mojeOferty||[]).join(', ')}${o.najtanszaOferta?' · źródło: '+(o.najtanszaOferta.sprzedawca||''):''}${o.blad?'<br>⚠️ '+o.blad:''}</div></td>
+      <td>${badge(o)}</td>
+      <td class="pr">${zl(o.cenaStartowaDostawcy)}</td>
+      <td class="pr">${zl(o.cenaAktualna)}</td>
+      <td>${o.zmianaProc==null?'—':(o.zmianaProc>0?'<span class="up">+'+o.zmianaProc+'%</span>':'<span class="dn">'+o.zmianaProc+'%</span>')}</td>
+      <td class="pr" style="text-align:center">${o.liczbaDostawcow??'—'}</td>
+      <td class="hidem">${spark(o.historia)}</td>
+      <td>${o.najtanszaOferta?'<a class="lnk" target="_blank" href="https://allegro.pl/oferta/'+o.najtanszaOferta.id+'">źródło ↗</a><br>':''}${(o.mojeOferty||[]).map((id,i)=>'<a class="lnk" target="_blank" href="https://allegro.pl/oferta/'+id+'">moja '+(i+1)+' ↗</a>').join('<br>')}</td>
+    </tr>`).join(''):'<tr><td colspan="8" class="empty">Nic nie pasuje do filtra.</td></tr>';
+
+  const s=document.getElementById('stats'), all=DATA.oferty;
+  const c2=all.filter(o=>o.alert===2).length, c1=all.filter(o=>o.alert===1).length, c0=all.filter(o=>o.alert===0).length;
+  s.innerHTML=`<div class="stat">Monitorowane produkty<b>${all.length}</b></div>
+    <div class="stat s-bad">Brak źródła<b>${c2}</b></div>
+    <div class="stat s-warn">Podwyżki źródła<b>${c1}</b></div>
+    <div class="stat s-ok">Dostępne<b>${c0}</b></div>`;
+
+  const d=new Date(DATA.aktualizacja), ageH=(Date.now()-d)/36e5;
+  document.getElementById('upd').innerHTML='Ostatnie sprawdzenie: <b>'+d.toLocaleString('pl-PL')+'</b>'+
+    (ageH>4?' <span class="stale">⚠️ dane starsze niż 4h — sprawdź zakładkę Actions</span>':'');
+}
+document.getElementById('q').addEventListener('input',e=>{Q=e.target.value.toLowerCase();render()});
+document.querySelectorAll('button.f').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('button.f').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');FILTER=b.dataset.f;render();
+}));
+// link "edytuj" prowadzi do edycji produkty.json w Twoim repo (wyliczany z adresu strony)
+(function(){
+  const user=location.hostname.split('.')[0];
+  const repo=location.pathname.split('/').filter(Boolean)[0]||'';
+  if(user&&repo) document.getElementById('editLink').href=`https://github.com/${user}/${repo}/edit/main/produkty.json`;
+  else document.getElementById('editLink').style.display='none';
+})();
+fetch('data.json?t='+Date.now()).then(r=>r.ok?r.json():null).then(j=>{DATA=j;render()}).catch(()=>render());
+</script>
+</body>
+</html>
